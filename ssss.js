@@ -80,6 +80,11 @@
             url_reserve: data.qualitys_proxy ? Api.account(qualityDefault(data.qualitys_proxy) || element.video_reserve || element.video, true) : false,
             quality: qualitys
           };
+          // Если URL оказался заглушкой VIP, попробуем взять превью как источник
+          try {
+            if (/vip\.mp4/.test(video.url) && element.preview) video.url = Api.account(element.preview, true);
+            if (video.url_reserve && /vip\.mp4/.test(video.url_reserve) && element.preview) video.url_reserve = Api.account(element.preview, true);
+          } catch (e) {}
           Lampa.Player.play(video);
 
           if (recomends.length) {
@@ -127,6 +132,11 @@
           url_reserve: Api.account(qualityDefault(element.qualitys_proxy) || element.video_reserve || '', true),
           quality: element.qualitys
         };
+        // Если итоговый URL оказался заглушкой VIP, используем превью как источник
+        try {
+          if (/vip\.mp4/.test(video.url) && element.preview) video.url = Api.account(element.preview, true);
+          if (video.url_reserve && /vip\.mp4/.test(video.url_reserve) && element.preview) video.url_reserve = Api.account(element.preview, true);
+        } catch (e) {}
         Lampa.Player.play(video);
         Lampa.Player.playlist([video]);
         Lampa.Player.callback(function () {
