@@ -27,6 +27,12 @@
         Lampa.Template.add(PLUGIN_NAME + '_css', '<style>' +
             '.pornhub-list{width:100%;height:100%;display:flex;flex-direction:column;background:#050505;color:#fff;}' +
             '.pornhub-list__status{padding:12px 16px;font-size:14px;color:#ddd;background:#0f0f0f;border-bottom:1px solid #222;}' +
+            '.pornhub-list__content{flex:1;overflow:auto;padding:10px 16px;}' +
+            '.pornhub-list__items{display:flex;flex-direction:column;gap:8px;}' +
+            '.pornhub-list__item{padding:12px 14px;border:1px solid #292929;border-radius:8px;background:#111;color:#fff;cursor:pointer;}' +
+            '.pornhub-list__item:hover, .pornhub-list__item.active{background:#222;}' +
+            '.pornhub-list__item-title{font-size:15px;font-weight:600;margin-bottom:6px;line-height:1.25;}' +
+            '.pornhub-list__item-subtitle, .pornhub-list__item-desc{font-size:12px;color:#a8a8a8;line-height:1.4;}' +
             '</style>');
         $('body').append(Lampa.Template.get(PLUGIN_NAME + '_css', {}, true));
     }
@@ -120,6 +126,46 @@
             });
     }
 
+    function renderList(items, onSelect) {
+        var container = $('<div class="pornhub-list__content"></div>');
+        var list = $('<div class="pornhub-list__items"></div>');
+
+        items.forEach(function(item) {
+            var itemNode = $('<div class="pornhub-list__item selector">' +
+                '<div class="pornhub-list__item-title">' + item.title + '</div>' +
+                (item.subtitle ? '<div class="pornhub-list__item-subtitle">' + item.subtitle + '</div>' : '') +
+                (item.description ? '<div class="pornhub-list__item-desc">' + item.description + '</div>' : '') +
+                '</div>');
+
+            itemNode.on('hover:enter click', function() {
+                onSelect(item);
+            });
+
+            list.append(itemNode);
+        });
+
+        container.append(list);
+        return container;
+    }
+
+    function showCategoryList(status, container) {
+        status.text('Выбери жанр');
+
+        var items = CATEGORIES.map(function(category) {
+            return {
+                title: category.title,
+                subtitle: category.route.replace('{page}', '1'),
+                category: category,
+                action: 'category'
+            };
+        });
+
+        container.find('.pornhub-list__content').remove();
+        container.append(renderList(items, function(item) {
+            showVideoList(item.category, 1, status, container);
+        }));
+    }
+
     function showVideoList(category, page, status, container) {
         var proxy = Lampa.Storage.get('adultjs_proxy', '').trim();
         status.text('Загрузка ' + category.title + ', страница ' + page + (proxy ? ' через прокси' : '') + '...');
@@ -142,35 +188,36 @@
                     title: item.title,
                     subtitle: item.subtitle,
                     description: item.description,
-                    icon: item.icon,
                     url: item.url,
-                    action: 'open'
+                    action: 'open',
+                    category: category,
+                    page: page
                 });
             });
 
-            list.push({ title: 'Далее →', action: 'next' });
+            list.push({ title: 'Далее →', action: 'next', category: category, page: page });
+            list.push({ title: '← Жанры', action: 'back' });
 
-            Lampa.Select.show({
-                title: category.title + ' — страница ' + page,
-                items: list,
-                onBack: function() {
-                    showCategoryList(status, container);
-                },
-                onSelect: function(item) {
-                    if (item.action === 'prev') {
-                        showVideoList(category, page - 1, status, container);
-                        return;
-                    }
-                    if (item.action === 'next') {
-                        showVideoList(category, page + 1, status, container);
-                        return;
-                    }
-                    if (item.url) {
-                        status.text('Скопируй ссылку, чтобы открыть видео: ' + item.url);
-                        Lampa.Noty.show(item.url);
-                    }
+            container.find('.pornhub-list__content').remove();
+            container.append(renderList(list, function(item) {
+                if (item.action === 'prev') {
+                    showVideoList(category, page - 1, status, container);
+                    return;
                 }
-            });
+                if (item.action === 'next') {
+                    showVideoList(category, page + 1, status, container);
+                    return;
+                }
+                if (item.action === 'back') {
+                    showCategoryList(status, container);
+                    return;
+                }
+                if (item.action === 'open') {
+                    status.text('Скопируй ссылку, чтобы открыть видео: ' + item.url);
+                    Lampa.Noty.show(item.url);
+                    return;
+                }
+            }));
 
             status.text('Выбрано: ' + category.title + '. На странице ' + page + '.');
         }, function(error) {
@@ -178,33 +225,12 @@
         });
     }
 
-    function showCategoryList(status, container) {
-        status.text('Выбери жанр');
-        var items = CATEGORIES.map(function(category) {
-            return {
-                title: category.title,
-                subtitle: category.route.replace('{page}', '1'),
-                action: 'category',
-                category: category
-            };
-        });
-
-        Lampa.Select.show({
-            title: PLUGIN_TITLE + ' — Жанры',
-            items: items,
-            onBack: function() {
-                Lampa.Activity.backward();
-            },
-            onSelect: function(item) {
-                showVideoList(item.category, 1, status, container);
-            }
-        });
-    }
-
     function PornhubList() {
         var html = $('<div class="pornhub-list"></div>');
         var status = createStatus('Загрузка плагина...');
+        var content = $('<div class="pornhub-list__content"></div>');
         html.append(status);
+        html.append(content);
 
         this.create = function() {
             this.activity.loader(false);
