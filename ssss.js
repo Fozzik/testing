@@ -36,6 +36,17 @@
         return proxy.replace(/\/+$|^\s+|\s+$/g, '') + encodeURIComponent(url);
     }
 
+    function insertBaseTag(html, baseUrl) {
+        var base = '<base href="' + baseUrl + '">';
+        if (/\<head[^>]*\>/i.test(html)) {
+            return html.replace(/(\<head[^>]*\>)/i, '$1' + base);
+        }
+        if (/\<html[^>]*\>/i.test(html)) {
+            return html.replace(/(\<html[^>]*\>)/i, '$1<head>' + base + '</head>');
+        }
+        return '<head>' + base + '</head>' + html;
+    }
+
     function PornhubSite() {
         var proxy = Lampa.Storage.get('adultjs_proxy', '').trim();
         var directUrl = SITE_URL;
@@ -51,7 +62,7 @@
             '</div>' +
             '<div class="pornhub-site__status"></div>' +
             '<div class="pornhub-site__body">' +
-            '<iframe class="pornhub-site__iframe" src="' + proxyUrl + '" sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox" allowfullscreen></iframe>' +
+            '<iframe class="pornhub-site__iframe" src="" sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox" allowfullscreen></iframe>' +
             '</div>' +
             '</div>'
         );
@@ -70,6 +81,25 @@
             status.text(text);
         }
 
+        function loadProxyContent() {
+            status.text('Загрузка через прокси...');
+            fetch(proxyUrl)
+                .then(function(response) {
+                    if (!response.ok) {
+                        throw new Error('Статус ' + response.status);
+                    }
+                    return response.text();
+                })
+                .then(function(text) {
+                    iframe.attr('srcdoc', insertBaseTag(text, directUrl));
+                    iframe.attr('src', '');
+                    updateStatus('proxy');
+                })
+                .catch(function(error) {
+                    status.text('Ошибка прокси: ' + error.message);
+                });
+        }
+
         function setMode(mode) {
             if (mode === 'proxy' && !proxy) {
                 updateStatus(mode);
@@ -78,8 +108,14 @@
 
             buttons.removeClass('active');
             html.find('.pornhub-site__button[data-mode="' + mode + '"]').addClass('active');
-            iframe.attr('src', mode === 'proxy' ? proxyUrl : directUrl);
-            updateStatus(mode);
+
+            if (mode === 'proxy') {
+                loadProxyContent();
+            } else {
+                iframe.attr('srcdoc', '');
+                iframe.attr('src', directUrl);
+                updateStatus(mode);
+            }
         }
 
         buttons.on('hover:enter click', function() {
