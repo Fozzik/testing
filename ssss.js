@@ -51,6 +51,36 @@
         return proxy.replace(/\/+$/g, '') + encodeURIComponent(url);
     }
 
+    function ensureHeaders(headers) {
+        var result = headers ? Object.assign({}, headers) : {};
+
+        if (!result['User-Agent'] && !result['user-agent']) {
+            result['User-Agent'] = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36';
+        }
+
+        if (!result['Accept-Language']) {
+            result['Accept-Language'] = 'en-US,en;q=0.9';
+        }
+
+        return result;
+    }
+
+    function isBlockedResponse(text) {
+        if (!text || text.length < 200) {
+            return true;
+        }
+
+        var lower = text.toLowerCase();
+
+        return lower.indexOf('accès à notre site suspendu') !== -1 ||
+            lower.indexOf('access suspended') !== -1 ||
+            lower.indexOf('limited-functionality') !== -1 ||
+            lower.indexOf('cookiebanner') !== -1 ||
+            lower.indexOf('pornhub is rated') !== -1 ||
+            lower.indexOf('verify your age') !== -1 ||
+            (lower.indexOf('france') !== -1 && lower.indexOf('suspendu') !== -1);
+    }
+
     function buildPageUrl(route, page) {
         return SITE_HOST + route.replace('{page}', page);
     }
@@ -60,8 +90,12 @@
         var nodes = doc.querySelectorAll('li.videoblock');
         var results = [];
 
+        if (!nodes.length) {
+            nodes = doc.querySelectorAll('li.videoblock, div.videoBox, div.pcVideoListItem, div.videoPreview, div.videoBlock, div.video-card, article.videoBox, a[href*="/view_video.php?viewkey="], a[href*="/video?viewkey="], a[href*="/view_video.php?v="]');
+        }
+
         nodes.forEach(function(node) {
-            var link = node.querySelector('a.linkVideoThumb, span.title a');
+            var link = node.tagName.toLowerCase() === 'a' ? node : node.querySelector('a.linkVideoThumb, span.title a, a[href*="/view_video.php?viewkey="], a[href*="/video?viewkey="], a[href*="/view_video.php?v="]');
             var href = link ? link.getAttribute('href') : null;
             if (!href) return;
 
@@ -69,13 +103,13 @@
                 href = SITE_HOST + href;
             }
 
-            var titleNode = node.querySelector('span.title a');
-            var title = titleNode ? titleNode.textContent.trim() : (link.textContent || '').trim();
-            var imgNode = node.querySelector('img');
-            var image = imgNode ? (imgNode.getAttribute('data-thumb_url') || imgNode.getAttribute('src') || '') : '';
-            var durationNode = node.querySelector('.duration');
+            var titleNode = node.querySelector('span.title a, .title a, a.title, .videoTitle, .video-title');
+            var title = (titleNode ? titleNode.textContent.trim() : '') || (link ? link.getAttribute('title') : '') || (link ? link.textContent.trim() : '');
+            var imgNode = node.querySelector('img') || (link && link.querySelector('img'));
+            var image = imgNode ? (imgNode.getAttribute('data-thumb_url') || imgNode.getAttribute('src') || imgNode.getAttribute('data-src') || '') : '';
+            var durationNode = node.querySelector('.duration, .videoDuration, .videoLength, .time, .previewDuration');
             var duration = durationNode ? durationNode.textContent.trim() : '';
-            var modelNode = node.querySelector('a[href*=\"/model/\"]');
+            var modelNode = node.querySelector('a[href*="/model/"]');
             var model = modelNode ? modelNode.textContent.trim() : '';
 
             results.push({
@@ -89,34 +123,45 @@
 
         return results;
     }
-
-    function createStatus(text) {
+function createStatus(text) {
         return $('<div class="pornhub-list__status">' + text + '</div>');
     }
 
     function requestPage(url, callback, fail, directAttempted) {
-        var requestUrl = ensureUrl(url, directAttempted === true ? false : undefined);
+        var useProxy = directAttempted !== true;
+        var requestUrl = ensureUrl(url, useProxy);
+
+        function handleResponse(text) {
+            if (useProxy && isBlockedResponse(text) && !directAttempted) {
+                requestPage(url, callback, fail, true);
+                return;
+            }
+            callback(text);
+        }
 
         if (window.Lampa && Lampa.Reguest) {
             var r = new Lampa.Reguest();
             r.native(requestUrl, function(responseText) {
-                callback(responseText);
+                handleResponse(responseText);
             }, function(error) {
                 if (!directAttempted) {
                     requestPage(url, callback, fail, true);
                     return;
                 }
                 fail('Ошибка запроса');
-            }, false, { dataType: 'text' });
+            }, false, { dataType: 'text', timeout: 10000, headers: ensureHeaders() });
             return;
         }
 
-        fetch(requestUrl, { method: 'GET' })
+        fetch(requestUrl, {
+            method: 'GET',
+            headers: ensureHeaders()
+        })
             .then(function(response) {
                 if (!response.ok) throw new Error('Статус ' + response.status);
                 return response.text();
             })
-            .then(callback)
+            .then(handleResponse)
             .catch(function(error) {
                 if (!directAttempted) {
                     requestPage(url, callback, fail, true);
@@ -166,15 +211,41 @@
         }));
     }
 
-    function showVideoList(category, page, status, container) {
+    function showVideoList(category, page, status, container, forceDirect) {
         var proxy = Lampa.Storage.get('adultjs_proxy', '').trim();
-        status.text('Загрузка ' + category.title + ', страница ' + page + (proxy ? ' через прокси' : '') + '...');
+        status.text('Загрузка ' + category.title + ', страница ' + page + (forceDirect ? ' напрямую' : (proxy ? ' через прокси' : '')) + '...');
         var url = buildPageUrl(category.route, page);
 
         requestPage(url, function(text) {
             var items = parseVideoList(text);
             if (!items.length) {
-                status.text('Пустая страница или изменённый сайт. Попробуй другой жанр.');
+                var actions = [];
+
+                if (proxy) {
+                    actions.push({ title: 'Попробовать без прокси', action: 'trydirect', category: category, page: page });
+                }
+
+                actions.push({ title: 'Открыть категорию в браузере', url: url, action: 'openlink' });
+                actions.push({ title: '← Жанры', action: 'back' });
+
+                container.find('.pornhub-list__content').remove();
+                container.append(renderList(actions, function(item) {
+                    if (item.action === 'trydirect') {
+                        showVideoList(category, page, status, container, true);
+                        return;
+                    }
+                    if (item.action === 'openlink') {
+                        status.text('Скопируй ссылку, чтобы открыть страницу: ' + item.url);
+                        Lampa.Noty.show(item.url);
+                        return;
+                    }
+                    if (item.action === 'back') {
+                        showCategoryList(status, container);
+                        return;
+                    }
+                }));
+
+                status.text('Пустая страница или блокировка. Попробуй другой прокси или открой категорию вручную.');
                 return;
             }
 
