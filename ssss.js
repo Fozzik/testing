@@ -31,10 +31,10 @@
         $('body').append(Lampa.Template.get(PLUGIN_NAME + '_css', {}, true));
     }
 
-    function ensureUrl(url) {
+    function ensureUrl(url, useProxy) {
         var proxy = Lampa.Storage.get('adultjs_proxy', '').trim();
 
-        if (!proxy) {
+        if (!proxy || useProxy === false) {
             return url;
         }
 
@@ -88,14 +88,18 @@
         return $('<div class="pornhub-list__status">' + text + '</div>');
     }
 
-    function requestPage(url, callback, fail) {
-        var requestUrl = ensureUrl(url);
+    function requestPage(url, callback, fail, directAttempted) {
+        var requestUrl = ensureUrl(url, directAttempted === true ? false : undefined);
 
         if (window.Lampa && Lampa.Reguest) {
             var r = new Lampa.Reguest();
             r.native(requestUrl, function(responseText) {
                 callback(responseText);
-            }, function() {
+            }, function(error) {
+                if (!directAttempted) {
+                    requestPage(url, callback, fail, true);
+                    return;
+                }
                 fail('Ошибка запроса');
             }, false, { dataType: 'text' });
             return;
@@ -108,12 +112,17 @@
             })
             .then(callback)
             .catch(function(error) {
+                if (!directAttempted) {
+                    requestPage(url, callback, fail, true);
+                    return;
+                }
                 fail(error.message || 'Ошибка сети');
             });
     }
 
     function showVideoList(category, page, status, container) {
-        status.text('Загрузка ' + category.title + ', страница ' + page + '...');
+        var proxy = Lampa.Storage.get('adultjs_proxy', '').trim();
+        status.text('Загрузка ' + category.title + ', страница ' + page + (proxy ? ' через прокси' : '') + '...');
         var url = buildPageUrl(category.route, page);
 
         requestPage(url, function(text) {
