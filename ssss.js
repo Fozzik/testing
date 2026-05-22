@@ -1008,12 +1008,12 @@ function _toPrimitive(e, t) {
                   name: "adultjs_proxy",
                   type: "input",
                   values: "",
-                  default: "",
+                  default: "https://api.allorigins.win/raw?url={url}",
                 },
                 field: {
                   name: "Прокси для запросов",
                   description:
-                    "Введите прокси с {url}, например https://corsproxy.io/?url={url}",
+                    "Введите прокси с {url}. Тестово можно использовать https://api.allorigins.win/raw?url={url}",
                 },
                 onRender: function (e) {},
               })));
