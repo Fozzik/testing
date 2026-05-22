@@ -1,23 +1,32 @@
 (function() {
     'use strict';
 
-    var PLUGIN_NAME = 'pornhub_site';
-    var PLUGIN_COMPONENT = 'pornhub_site';
+    var PLUGIN_NAME = 'pornhub_list';
+    var PLUGIN_COMPONENT = 'pornhub_list';
     var PLUGIN_TITLE = 'PornHub';
-    var SITE_URL = 'https://rt.pornhub.com/';
+    var SITE_HOST = 'https://rt.pornhub.com';
+
+    var CATEGORIES = [
+        { title: 'Все', route: '/video?page={page}' },
+        { title: 'Русское', route: '/language/russian?page={page}' },
+        { title: 'Анальный секс', route: '/video?c=35&page={page}' },
+        { title: 'Мамочки', route: '/video?c=29&page={page}' },
+        { title: 'Мулаты', route: '/video?c=17&page={page}' },
+        { title: 'Лесбиянки', route: '/video?c=27&page={page}' },
+        { title: 'Секс втроем', route: '/video?c=65&page={page}' },
+        { title: 'Большая грудь', route: '/video?c=8&page={page}' },
+        { title: 'На публике', route: '/video?c=24&page={page}' },
+        { title: 'БДСМ', route: '/video?c=10&page={page}' },
+        { title: 'Хентай', route: '/categories/hentai?page={page}' },
+        { title: 'Юные', route: '/categories/teen?page={page}' },
+        { title: 'Трансгендер', route: '/transgender?page={page}' },
+        { title: 'Гей', route: '/gayporn?page={page}' }
+    ];
 
     function addStyles() {
         Lampa.Template.add(PLUGIN_NAME + '_css', '<style>' +
-            '.pornhub-site{width:100%;height:100%;display:flex;flex-direction:column;background:#000;}' +
-            '.pornhub-site__header{padding:10px 16px;display:flex;justify-content:space-between;align-items:center;background:#111;}' +
-            '.pornhub-site__header-left{font-size:18px;font-weight:600;color:#fff;}' +
-            '.pornhub-site__header-right{display:flex;gap:8px;}' +
-            '.pornhub-site__button{padding:8px 12px;border:none;border-radius:4px;background:#222;color:#fff;font-size:14px;cursor:pointer;}' +
-            '.pornhub-site__button:hover{background:#333;}' +
-            '.pornhub-site__button.active{background:#f60;color:#000;}' +
-            '.pornhub-site__status{padding:8px 16px;font-size:13px;color:#ccc;background:#0d0d0d;}' +
-            '.pornhub-site__body{position:relative;flex:1;overflow:hidden;}' +
-            '.pornhub-site__iframe{position:absolute;top:0;left:0;width:100%;height:100%;border:0;background:#000;}' +
+            '.pornhub-list{width:100%;height:100%;display:flex;flex-direction:column;background:#050505;color:#fff;}' +
+            '.pornhub-list__status{padding:12px 16px;font-size:14px;color:#ddd;background:#0f0f0f;border-bottom:1px solid #222;}' +
             '</style>');
         $('body').append(Lampa.Template.get(PLUGIN_NAME + '_css', {}, true));
     }
@@ -33,103 +42,169 @@
             return proxy.replace('{url}', encodeURIComponent(url));
         }
 
-        return proxy.replace(/\/+$|^\s+|\s+$/g, '') + encodeURIComponent(url);
+        return proxy.replace(/\/+$/g, '') + encodeURIComponent(url);
     }
 
-    function insertBaseTag(html, baseUrl) {
-        var base = '<base href="' + baseUrl + '">';
-        if (/\<head[^>]*\>/i.test(html)) {
-            return html.replace(/(\<head[^>]*\>)/i, '$1' + base);
-        }
-        if (/\<html[^>]*\>/i.test(html)) {
-            return html.replace(/(\<html[^>]*\>)/i, '$1<head>' + base + '</head>');
-        }
-        return '<head>' + base + '</head>' + html;
+    function buildPageUrl(route, page) {
+        return SITE_HOST + route.replace('{page}', page);
     }
 
-    function PornhubSite() {
-        var proxy = Lampa.Storage.get('adultjs_proxy', '').trim();
-        var directUrl = SITE_URL;
-        var proxyUrl = proxy ? ensureUrl(SITE_URL) : directUrl;
-        var html = $(
-            '<div class="pornhub-site">' +
-            '<div class="pornhub-site__header">' +
-            '<div class="pornhub-site__header-left">' + PLUGIN_TITLE + '</div>' +
-            '<div class="pornhub-site__header-right">' +
-            '<button class="pornhub-site__button" data-mode="direct">Прямо</button>' +
-            '<button class="pornhub-site__button" data-mode="proxy">Через прокси</button>' +
-            '</div>' +
-            '</div>' +
-            '<div class="pornhub-site__status"></div>' +
-            '<div class="pornhub-site__body">' +
-            '<iframe class="pornhub-site__iframe" src="" sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox" allowfullscreen></iframe>' +
-            '</div>' +
-            '</div>'
-        );
+    function parseVideoList(html) {
+        var doc = new DOMParser().parseFromString(html, 'text/html');
+        var nodes = doc.querySelectorAll('li.videoblock');
+        var results = [];
 
-        var iframe = html.find('.pornhub-site__iframe');
-        var status = html.find('.pornhub-site__status');
-        var buttons = html.find('.pornhub-site__button');
+        nodes.forEach(function(node) {
+            var link = node.querySelector('a.linkVideoThumb, span.title a');
+            var href = link ? link.getAttribute('href') : null;
+            if (!href) return;
 
-        function updateStatus(mode) {
-            var text = mode === 'proxy'
-                ? 'Загружено через прокси'
-                : 'Загружено напрямую';
-            if (mode === 'proxy' && !proxy) {
-                text = 'Прокси не настроен. Установи adultjs_proxy в настройках.';
+            if (href.indexOf('http') !== 0) {
+                href = SITE_HOST + href;
             }
-            status.text(text);
+
+            var titleNode = node.querySelector('span.title a');
+            var title = titleNode ? titleNode.textContent.trim() : (link.textContent || '').trim();
+            var imgNode = node.querySelector('img');
+            var image = imgNode ? (imgNode.getAttribute('data-thumb_url') || imgNode.getAttribute('src') || '') : '';
+            var durationNode = node.querySelector('.duration');
+            var duration = durationNode ? durationNode.textContent.trim() : '';
+            var modelNode = node.querySelector('a[href*=\"/model/\"]');
+            var model = modelNode ? modelNode.textContent.trim() : '';
+
+            results.push({
+                title: title || 'Без названия',
+                url: href,
+                icon: image,
+                subtitle: duration || '',
+                description: model ? 'Модель: ' + model : ''
+            });
+        });
+
+        return results;
+    }
+
+    function createStatus(text) {
+        return $('<div class="pornhub-list__status">' + text + '</div>');
+    }
+
+    function requestPage(url, callback, fail) {
+        var requestUrl = ensureUrl(url);
+
+        if (window.Lampa && Lampa.Reguest) {
+            var r = new Lampa.Reguest();
+            r.native(requestUrl, function(responseText) {
+                callback(responseText);
+            }, function() {
+                fail('Ошибка запроса');
+            }, false, { dataType: 'text' });
+            return;
         }
 
-        function loadProxyContent() {
-            status.text('Загрузка через прокси...');
-            fetch(proxyUrl)
-                .then(function(response) {
-                    if (!response.ok) {
-                        throw new Error('Статус ' + response.status);
-                    }
-                    return response.text();
-                })
-                .then(function(text) {
-                    iframe.attr('srcdoc', insertBaseTag(text, directUrl));
-                    iframe.attr('src', '');
-                    updateStatus('proxy');
-                })
-                .catch(function(error) {
-                    status.text('Ошибка прокси: ' + error.message);
-                });
-        }
+        fetch(requestUrl, { method: 'GET' })
+            .then(function(response) {
+                if (!response.ok) throw new Error('Статус ' + response.status);
+                return response.text();
+            })
+            .then(callback)
+            .catch(function(error) {
+                fail(error.message || 'Ошибка сети');
+            });
+    }
 
-        function setMode(mode) {
-            if (mode === 'proxy' && !proxy) {
-                updateStatus(mode);
+    function showVideoList(category, page, status, container) {
+        status.text('Загрузка ' + category.title + ', страница ' + page + '...');
+        var url = buildPageUrl(category.route, page);
+
+        requestPage(url, function(text) {
+            var items = parseVideoList(text);
+            if (!items.length) {
+                status.text('Пустая страница или изменённый сайт. Попробуй другой жанр.');
                 return;
             }
 
-            buttons.removeClass('active');
-            html.find('.pornhub-site__button[data-mode="' + mode + '"]').addClass('active');
-
-            if (mode === 'proxy') {
-                loadProxyContent();
-            } else {
-                iframe.attr('srcdoc', '');
-                iframe.attr('src', directUrl);
-                updateStatus(mode);
+            var list = [];
+            if (page > 1) {
+                list.push({ title: '← Назад', action: 'prev' });
             }
-        }
 
-        buttons.on('hover:enter click', function() {
-            setMode($(this).data('mode'));
+            items.forEach(function(item) {
+                list.push({
+                    title: item.title,
+                    subtitle: item.subtitle,
+                    description: item.description,
+                    icon: item.icon,
+                    url: item.url,
+                    action: 'open'
+                });
+            });
+
+            list.push({ title: 'Далее →', action: 'next' });
+
+            Lampa.Select.show({
+                title: category.title + ' — страница ' + page,
+                items: list,
+                onBack: function() {
+                    showCategoryList(status, container);
+                },
+                onSelect: function(item) {
+                    if (item.action === 'prev') {
+                        showVideoList(category, page - 1, status, container);
+                        return;
+                    }
+                    if (item.action === 'next') {
+                        showVideoList(category, page + 1, status, container);
+                        return;
+                    }
+                    if (item.url) {
+                        status.text('Скопируй ссылку, чтобы открыть видео: ' + item.url);
+                        Lampa.Noty.show(item.url);
+                    }
+                }
+            });
+
+            status.text('Выбрано: ' + category.title + '. На странице ' + page + '.');
+        }, function(error) {
+            status.text('Ошибка загрузки: ' + error);
         });
+    }
+
+    function showCategoryList(status, container) {
+        status.text('Выбери жанр');
+        var items = CATEGORIES.map(function(category) {
+            return {
+                title: category.title,
+                subtitle: category.route.replace('{page}', '1'),
+                action: 'category',
+                category: category
+            };
+        });
+
+        Lampa.Select.show({
+            title: PLUGIN_TITLE + ' — Жанры',
+            items: items,
+            onBack: function() {
+                Lampa.Activity.backward();
+            },
+            onSelect: function(item) {
+                showVideoList(item.category, 1, status, container);
+            }
+        });
+    }
+
+    function PornhubList() {
+        var html = $('<div class="pornhub-list"></div>');
+        var status = createStatus('Загрузка плагина...');
+        html.append(status);
 
         this.create = function() {
             this.activity.loader(false);
             this.activity.toggle();
-            setMode(proxy ? 'proxy' : 'direct');
             return html;
         };
 
         this.start = function() {
+            showCategoryList(status, html);
             Lampa.Controller.add('content', {
                 toggle: function() {},
                 back: this.back.bind(this)
@@ -149,16 +224,13 @@
         };
 
         this.destroy = function() {
-            buttons.off('hover:enter click');
             html.remove();
         };
     }
 
     function addMenuButton() {
         var button = $('<li class="menu__item selector">' +
-            '<div class="menu__ico">' +
-            '<svg viewBox="0 0 24 24" width="24" height="24" fill="currentColor"><path d="M6 4h12v2H6V4zm0 4h12v2H6V8zm0 4h12v2H6v-2zm0 4h12v2H6v-2z"></path></svg>' +
-            '</div>' +
+            '<div class="menu__ico"><svg viewBox="0 0 24 24" width="24" height="24" fill="currentColor"><path d="M6 4h12v2H6V4zm0 4h12v2H6V8zm0 4h12v2H6v-2zm0 4h12v2H6v-2z"></path></svg></div>' +
             '<div class="menu__text">' + PLUGIN_TITLE + '</div>' +
             '</li>');
 
@@ -179,7 +251,7 @@
         window[PLUGIN_NAME + '_ready'] = true;
 
         addStyles();
-        Lampa.Component.add(PLUGIN_COMPONENT, PornhubSite);
+        Lampa.Component.add(PLUGIN_COMPONENT, PornhubList);
 
         if (window.appready) {
             addMenuButton();
