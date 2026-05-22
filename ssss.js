@@ -76,8 +76,8 @@
 
           var video = {
             title: element.name,
-            url: Api.account(qualityDefault(qualitys), true),
-            url_reserve: data.qualitys_proxy ? Api.account(qualityDefault(data.qualitys_proxy), true) : false,
+            url: Api.account(qualityDefault(qualitys) || element.video, true),
+            url_reserve: data.qualitys_proxy ? Api.account(qualityDefault(data.qualitys_proxy) || element.video_reserve || element.video, true) : false,
             quality: qualitys
           };
           Lampa.Player.play(video);
